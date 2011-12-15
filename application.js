@@ -7,13 +7,28 @@ function onOpen() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var menuEntries = [];
   // When the user clicks on "addMenuExample" then "Menu Entry 1", the function function1 is executed.
-  menuEntries.push({name: "get datasets", functionName: "get_datasets"});
-  menuEntries.push({name: "update datasets", functionName: "update_datasets"});
-  menuEntries.push({name: "upload dataset", functionName: "make_form"});
+  menuEntries.push({name: "Upload dataset", functionName: "make_form"});
+  menuEntries.push(null);
+  menuEntries.push({name: "Get datasets", functionName: "get_datasets"});
+  menuEntries.push({name: "Update datasets", functionName: "update_datasets"});
+  menuEntries.push({name: "Make dataset template", functionName: "make_dataset_template"});
+
   ss.addMenu("CKAN", menuEntries);
 }
 
-
+function make_dataset_template() {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('dataset');
+  if (sheet !== null) {
+    Browser.msgBox("Dataset sheet already present");
+    return
+  }
+  sheet = SpreadsheetApp.getActiveSpreadsheet().insertSheet('dataset');
+  sheet.getRange(1,1).setValue('apikey');
+  sheet.getRange(1,2).setValue('error');
+  sheet.getRange(1,3).setValue('name');
+  sheet.setFrozenRows(1);
+}
+ 
 //updates dataset in sheet
 
 function update_datasets() {
