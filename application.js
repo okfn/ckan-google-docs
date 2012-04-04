@@ -262,7 +262,7 @@ function get_ckanurl_from_row_(header_row, row) {
       return url
     };
   };
-  return 'http://test.ckan.org/'
+  return 'http://www.thedatahub.org/'
 }  
 
 
@@ -299,13 +299,13 @@ function make_form(values, errors) {
   
   var app = UiApp.createApplication().setTitle('Upload data form');
   
-  var empty_form_data = {"apikey" : "", "user_name": "", 
+  var empty_form_data = {"ckan": "", "webstore": "",
+                         "apikey" : "", "user_name": "", 
                          "dataset_name": "", "resource_name": ""};
     
   if (values === undefined || values === {}) {
     var values = _.extend({}, empty_form_data);
-    values.user_name = Session.getUser().getUserLoginId();
-    values.user_name = values.user_name.split('@')[0];
+    values.ckan = 'http://thedatahub.org/'
     values.dataset_name = ss.getName();
     values.resource_name = SpreadsheetApp.getActiveSpreadsheet().getSheetName()
   }
@@ -318,16 +318,15 @@ function make_form(values, errors) {
     
   Logger.log(errors)
   
-     // Create a grid with 3 text boxes and corresponding labels
-  var grid = app.createGrid(4, 3);
-  grid.setWidget(0, 0, app.createLabel('Apikey:'));
-  grid.setWidget(0, 1, app.createTextBox().setText(values.apikey).setName('apikey'));
-  grid.setWidget(0, 2, app.createLabel(errors.apikey).setStyleAttribute('color', 'red'));
+  var grid = app.createGrid(6, 3);
+  grid.setWidget(0, 0, app.createLabel('CKAN instance:'));
+  grid.setWidget(0, 1, app.createTextBox().setText(values.ckan).setName('ckan'));
+  grid.setWidget(0, 2, app.createLabel(errors.ckan).setStyleAttribute('color', 'red'));
   
-  grid.setWidget(1, 0, app.createLabel('User name:'));
-  grid.setWidget(1, 1, app.createTextBox().setText(values.user_name).setName('user_name'));
-  grid.setWidget(1, 2, app.createLabel(errors.user_name).setStyleAttribute('color', 'red'));
-
+  grid.setWidget(1, 0, app.createLabel('Apikey:'));
+  grid.setWidget(1, 1, app.createTextBox().setText(values.apikey).setName('apikey'));
+  grid.setWidget(1, 2, app.createLabel(errors.apikey).setStyleAttribute('color', 'red'));
+  
   grid.setWidget(2, 0, app.createLabel('Dataset name:'));
   grid.setWidget(2, 1, app.createTextBox().setText(values.dataset_name).setName('dataset_name'));
   grid.setWidget(2, 2, app.createLabel(errors.dataset_name).setStyleAttribute('color', 'red'));
@@ -362,62 +361,79 @@ function make_form(values, errors) {
 
 function upload_data_(form_data) {
   
-  var form_data = {'apikey': form_data.parameter.apikey,
-                   'user_name': form_data.parameter.user_name,
+  Logger.log('parameter')  
+  Logger.log(form_data.parameter)
+  
+  var form_data = {'ckan' : form_data.parameter.ckan,
+                   'apikey': form_data.parameter.apikey,
                    'dataset_name': form_data.parameter.dataset_name,
                    'resource_name': form_data.parameter.resource_name};
+  
+  Logger.log('form_data')  
+  Logger.log(form_data)
+  
+  ckan_url = form_data.ckan;
   
   var errors = {};
   
   if (form_data.apikey === '') {errors.apikey = 'No Api key supplied'};
-  if (form_data.user_name === '') {errors.user_name = 'No User Name supplied'};
+  if (form_data.ckan === '') {errors.ckan = 'No ckan url supplied'};
   if (form_data.dataset_name === '') {errors.dataset_name = 'No dataset name supplied'};
-  if (form_data.resource_name === '') {errors.resource_name = 'No user name supplied'};
+  if (form_data.resource_name === '') {errors.resource_name = 'No resource name supplied'};
   
-  if (errors == {}) {
+  Logger.log('errors');
+  Logger.log(errors);
+  
+  if (!_.isEmpty(errors)) {
       var app = UiApp.getActiveApplication();
       app.close();
       make_form(form_data, errors);
       return
   };
-    
+  
+      
   create_package_if_new_(form_data);
-  
-  // Upload the currently active sheet to the webstore
-  var sheetname = SpreadsheetApp.getActiveSpreadsheet().getSheetName();
-  var auth = {'apikey': form_data.apikey, 'name': form_data.user_name}
-  var resource = {'name': form_data.user_name, 
-                  'database': form_data.dataset_name,
-                  'table': form_data.resource_name}
-  upload_sheet_to_webstore(sheetname, auth, resource);
-  
-  // Add the uploaded sheet as a resource on the dataset.
   dataset = get_from_ckan_(form_data);
   
-  // Check if the resource exists already
-  var webstore_url = resource_url_(resource);
-  var found = false;
+  // find resource_id of named resource
+  
+  var resource_id;
   for(var i=0; i<dataset.resources.length; i++) {
     var resource_name = dataset.resources[i].name;
     if (resource_name === form_data.resource_name) {
-      dataset.resources[i].url = webstore_url;
-      dataset.resources[i].webstore_url = webstore_url;
-      found = true;
+      dataset.resources[i].webstore_url = 'enabled';
+      resource_id = dataset.resources[i].id
       break;
     }
   };
-  if(!found) {
+  
+  // create new resource if not found
+  if(!resource_id) {
     // create the resource
     dataset.resources.push({'name': form_data.resource_name,
-                            'url': webstore_url,
-                            'webstore_url': webstore_url});
+                            'url': 'internal',
+                            'webstore_url': 'enabled'});
   }
   
-  // POST the dataset back up to CKAN
+  // post changes back
   dataset = post_to_ckan_(dataset, form_data);
   
-  // Render the dataset
-  // TODO
+  // refech resourse_id, should be there now.
+  for(var i=0; i<dataset.resources.length; i++) {
+    var resource_name = dataset.resources[i].name;
+    if (resource_name === form_data.resource_name) {
+      resource_id = dataset.resources[i].id
+      break;
+    }
+  };  
+    
+  // Upload the currently active sheet to the webstore
+  var sheetname = SpreadsheetApp.getActiveSpreadsheet().getSheetName();
+  var auth = {'apikey': form_data.apikey, 'ckan': form_data.ckan};
+  var resource = {'id': resource_id};
+  Logger.log('uploading');
+  upload_sheet_to_webstore(sheetname, auth, resource);
+  Logger.log('finished uploading');
   
   // Close the form
   var app = UiApp.getActiveApplication();
@@ -429,6 +445,7 @@ function upload_data_(form_data) {
 
 
 function create_package_if_new_(form_data) {
+  Logger.log(form_data)
   var json_dataset = Utilities.jsonStringify({"name": munge_name(form_data.dataset_name),
                                               "title": form_data.dataset_name});
   var headers = {'Authorization': form_data.apikey,
@@ -440,13 +457,20 @@ function create_package_if_new_(form_data) {
                                      "contentType": "application/json",
                                      "method": "post",
                                      "payload": json_dataset});
+    return Utilities.jsonParse(response.getContentText()).result
   } catch(err) {
     var ckan_error = err.message.match('{.*$');
+    Logger.log('ckan_error');
+    Logger.log(ckan_error);
     if (ckan_error === null || ckan_error === undefined) {throw err};
     var error_obj = Utilities.jsonParse(ckan_error[0]);
-    if (error_obj.error.name[0] !== "That URL is already in use.") {
-      throw err;
+    if (error_obj.success == false) {
+      if (error_obj.error.name !== undefined && error_obj.error.name[0] !== "That URL is already in use.") {
+         throw err;
+      }
+    return false
     }
+
   };
 };​
 
@@ -478,7 +502,7 @@ function test_create_package() {
 }
   
 function ckan_root_uri_() {
-  return 'http://test.ckan.org/';
+  return ckan_url;
 }
 
 /**
@@ -500,21 +524,6 @@ function post_to_ckan_(dataset, form_data) {
 }
 
 
-/*
- * Uploads the sheet named "webstore_upload".
- */
-function test_webstore_upload() {
-  auth = {
-    'apikey': 'a2f4b0ad-11f0-4e77-aee7-6801b0d493bd',
-    'name': 'icmurray'
-  };
-  resource = {
-    'database': 'googledocs-test3',
-    'table': 'webstore_upload6',
-    'name': 'icmurray'
-  };
-  upload_sheet_to_webstore("webstore_upload", auth, resource);
-}
 
 /*
  * Uploads the data in the given sheet to the webstore.
@@ -533,28 +542,30 @@ function upload_sheet_to_webstore(sheetname, auth, resource) {
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(sheetname);
   var column_names = get_column_names_(sheet);
   var data = get_data_(sheet, column_names);
-  //delete_table_on_webstore_(sheetname, auth, resource);
-  create_new_table_on_webstore_(sheetname, data, auth, resource);
-}
-
-/**
- * POSTs the given data to the webstore.
- *
- * POST /{user-name}/{db-name}/{table-name}
- *
- *  TODO: address the following
- *  - username is hard-coded for now
- *  - db-name is hard-coded for now
- *  - urlencode tablename necessary?
- *  - handle errors
- *
- */
-function create_new_table_on_webstore_(tablename, data, auth, resource) {
+  
+  //try and delete the data first
+  var response = UrlFetchApp.fetch(auth.ckan + 'api/data/' + resource.id,
+                                  {"contentType": "application/json",
+                                   "headers": headers,
+                                   "method": "delete"}); 
+  
+    
   var headers = {
     'authorization': auth.apikey,
     'Accept': "application/json"};
-  var url = resource_url_(resource);
-  var payload = Utilities.jsonStringify(data);
+  var url = auth.ckan + 'api/data/' + resource.id + '/_bulk';
+  
+  var bulk_data = []
+  
+  for (var i = 0; i < data.length; ++i){
+    bulk_data.push(Utilities.jsonStringify({"index": {"_id": i+1}}));
+    bulk_data.push(Utilities.jsonStringify(data[i]));
+  }
+  
+  var payload = bulk_data.join('\n') + '\n';
+  
+  Logger.log('url');
+  Logger.log(url);
 
   var response = UrlFetchApp.fetch(url,
                                    {"contentType": "application/json",
@@ -562,7 +573,7 @@ function create_new_table_on_webstore_(tablename, data, auth, resource) {
                                     "method": "post",
                                     "payload": payload});
   var s = response.getContentText();
-
+  Logger.log(s);
 }
 
 function delete_table_on_webstore_(tablename, auth, resource) {
@@ -584,21 +595,10 @@ function delete_table_on_webstore_(tablename, auth, resource) {
   };
 }
 
-function webstore_root_() {
-  return "http://webstore.test.ckan.org";
-}
 
-/**
- * Returns the resource url for the given resource object, ie:
- *
- * /{user_name}/{db_name}/{table_name}
- */
-function resource_url_(resource) {
-  return webstore_root_() +
-         "/" + munge_name(resource.name, '_') +
-         "/" + munge_name(resource.database, '_') +
-         "/" + munge_name(resource.table, '_');
-}
+
+
+
 
 
 /////////////////////////////////  UTILS ///////////////////////////////////////
@@ -616,6 +616,8 @@ function extend_sheet_(){
 
 
 function munge_name(slug, delimiter) {
+  Logger.log('slug')
+  Logger.log(slug)
 
   if (delimiter == undefined) {
     var delimiter = '-';
